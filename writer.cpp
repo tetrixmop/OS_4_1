@@ -1,7 +1,4 @@
 // writer.cpp
-// Создаёт file-mapping, мьютекс, семафоры, пишет в разделяемую память.
-// Производит логирование в writer_log_<PID>.txt
-
 #include <windows.h>
 #include <iostream>
 #include <fstream>
@@ -31,10 +28,10 @@ static const wchar_t* MAPPING_NAME = L"Global_SharedBuf_Mapping";
 static const wchar_t* SEM_NAME_BASE = L"Global_PageSem_"; // будем к нему добавлять номер
 
 // Глобальные переменные для упрощения
-HANDLE        g_hFileMapping = nullptr;
+HANDLE g_hFileMapping = nullptr;
 SharedBuffer* g_bufView = nullptr;
-HANDLE        g_mutexHandle = nullptr;
-HANDLE        g_pageSems[BUFF_PAGES] = { 0 };
+HANDLE g_mutexHandle = nullptr;
+HANDLE g_pageSems[BUFF_PAGES] = { 0 };
 std::ofstream g_logStream;
 
 
