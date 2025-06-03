@@ -1,7 +1,4 @@
 // launcher.cpp
-// Запускаем Writer-процессы и Reader-процессы, ждём их завершения.
-// Создаём дочерние процессы через CreateProcessW.
-
 #include <windows.h>
 #include <iostream>
 #include <vector>
@@ -16,24 +13,13 @@ int main()
     HANDLE handles[WRITERS_TOTAL + READERS_TOTAL] = { 0 };
     int idx = 0;
 
-    // 1) Запускаем несколько Writer-процессов
+    // 1) Запускаем несколько writer-процессов
     for (int i = 0; i < WRITERS_TOTAL; ++i) {
         STARTUPINFOW sinf = { sizeof(STARTUPINFOW) };
         PROCESS_INFORMATION pinf;
         std::wstring cmd = L"Writer.exe";
 
-        BOOL ok = CreateProcessW(
-            nullptr,
-            &cmd[0],
-            nullptr,
-            nullptr,
-            FALSE,
-            CREATE_NEW_CONSOLE,
-            nullptr,
-            nullptr,
-            &sinf,
-            &pinf
-        );
+        BOOL ok = CreateProcessW(nullptr, &cmd[0], nullptr, nullptr, FALSE, CREATE_NEW_CONSOLE, nullptr, nullptr, &sinf, &pinf);
         if (ok) {
             std::wcout << L"[Launcher] Writer #" << (i + 1) << L" launched.\n";
             handles[idx++] = pinf.hProcess;
@@ -45,24 +31,13 @@ int main()
         }
     }
 
-    // 2) Запускаем несколько Reader-процессов
+    // 2) Запускаем несколько reader-процессов
     for (int i = 0; i < READERS_TOTAL; ++i) {
         STARTUPINFOW sinf = { sizeof(STARTUPINFOW) };
         PROCESS_INFORMATION pinf;
         std::wstring cmd = L"Reader.exe";
 
-        BOOL ok = CreateProcessW(
-            nullptr,
-            &cmd[0],
-            nullptr,
-            nullptr,
-            FALSE,
-            CREATE_NEW_CONSOLE,
-            nullptr,
-            nullptr,
-            &sinf,
-            &pinf
-        );
+        BOOL ok = CreateProcessW(nullptr, &cmd[0], nullptr, nullptr, FALSE, CREATE_NEW_CONSOLE, nullptr, nullptr, &sinf, &pinf);
         if (ok) {
             std::wcout << L"[Launcher] Reader #" << (i + 1) << L" launched.\n";
             handles[idx++] = pinf.hProcess;
