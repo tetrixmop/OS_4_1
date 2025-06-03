@@ -1,7 +1,4 @@
-﻿// reader.cpp
-// Открывает уже существующие мьютекс, семафоры, mapping, читает из разделяемой памяти.
-// Записывает логи в reader_log_<PID>.txt
-
+// reader.cpp
 #include <windows.h>
 #include <iostream>
 #include <fstream>
@@ -23,18 +20,16 @@ struct SharedBuffer {
     char payload[BUFF_PAGES][BUFF_BYTES];
 };
 
-// Имена тех же примитивов, что создал Writer
 static const wchar_t* MUTEX_NAME = L"Global_SharedBuf_Mutex";
 static const wchar_t* MAPPING_NAME = L"Global_SharedBuf_Mapping";
 static const wchar_t* SEM_NAME_BASE = L"Global_PageSem_";
 
-HANDLE        g_hFileMapping = nullptr;
+HANDLE g_hFileMapping = nullptr;
 SharedBuffer* g_bufView = nullptr;
-HANDLE        g_mutexHandle = nullptr;
-HANDLE        g_pageSems[BUFF_PAGES] = { 0 };
+HANDLE g_mutexHandle = nullptr;
+HANDLE g_pageSems[BUFF_PAGES] = { 0 };
 std::ofstream g_logStream;
 
-// Вспомогательная: получить millisecond timestamp через timeGetTime()
 static DWORD getMilliTime() {
     return timeGetTime();
 }
@@ -57,7 +52,7 @@ void initAll()
 {
     srand(static_cast<unsigned int>(time(nullptr)));
 
-    // 1) Открываем мьютекс (он должен быть уже создан Writer’ом)
+    // 1) Открываем мьютекс (он должен быть уже создан писателем)
     g_mutexHandle = OpenMutexW(
         MUTEX_ALL_ACCESS,
         FALSE,
@@ -135,8 +130,7 @@ void cleanupAll()
     }
 }
 
-// Ждём, когда освободится один из семафоров. Если получено OK → индекс семафора
-// Если таймаут (заблокировано >1500 мс) → возвращаем -1
+// Ждём, когда освободится один из семафоров. Если получено OK - индекс семафора
 int waitForChunk()
 {
     DWORD res = WaitForMultipleObjects(
@@ -152,31 +146,29 @@ int waitForChunk()
     return -1;
 }
 
-// Собственно чтение: получив индекс chunkIdx, мы берём мьютекс, проверяем состояние,
-// меняем из C_WRITTEN→C_READ, потом «читаем» побайтово, логируем.
 void performRead(int chunkIdx)
 {
-    // a) Захватываем мьютекс и проверяем, что состояние = C_WRITTEN
+    // a) Захватываем мьютекс и проверяем, что состояние WRITTEN
     WaitForSingleObject(g_mutexHandle, INFINITE);
     if (g_bufView->states[chunkIdx] == C_WRITTEN) {
         g_bufView->states[chunkIdx] = C_READ;
     }
     ReleaseMutex(g_mutexHandle);
 
-    // b) Логируем «начало чтения»
+    // b) Логируем начало чтения
     if (g_logStream.is_open()) {
         g_logStream << GetCurrentProcessId() << ":"
             << getMilliTime()
             << ": Start_Read_Chunk_" << chunkIdx << "\n";
     }
 
-    // c) «Читаем» всю страницу побайтово (симуляция cpu-загрузки)
+    // c) Читаем всю страницу побайтово (симуляция cpu-загрузки)
     volatile char tmp;
     for (int i = 0; i < BUFF_BYTES; ++i) {
         tmp = g_bufView->payload[chunkIdx][i];
     }
 
-    // d) Имитируем длительность чтения (от 500 до 1500 мс)
+    // d) Имитируем длительность чтения 
     int delay = 500 + rand() % 1001;
     Sleep(delay);
 
@@ -195,9 +187,7 @@ int main()
 {
     initAll();
 
-    // Выполняем ровно столько итераций, сколько было BUFF_PAGES
     for (int i = 0; i < BUFF_PAGES; ++i) {
-        // Логируем «ожидание»
         if (g_logStream.is_open()) {
             g_logStream << GetCurrentProcessId() << ":"
                 << getMilliTime()
@@ -206,7 +196,6 @@ int main()
 
         int pageIndex = waitForChunk();
         if (pageIndex < 0) {
-            // Таймаут: будто все писатели уже завершили, нет новых записей
             Sleep(100);
             continue;
         }
