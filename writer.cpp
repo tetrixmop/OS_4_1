@@ -16,7 +16,7 @@
 // Возможные состояния каждой страницы
 enum ChunkState { C_EMPTY = 0, C_WRITTEN = 1, C_READ = 2 };
 
-// Структура, хранящая массив состояний + данные (в виде байтов)
+// Структура, хранящая массив состояний + данные
 struct SharedBuffer {
     ChunkState states[BUFF_PAGES];
     char payload[BUFF_PAGES][BUFF_BYTES];
@@ -25,9 +25,8 @@ struct SharedBuffer {
 // Имена синхропримитивов и mapped-файла
 static const wchar_t* MUTEX_NAME = L"Global_SharedBuf_Mutex";
 static const wchar_t* MAPPING_NAME = L"Global_SharedBuf_Mapping";
-static const wchar_t* SEM_NAME_BASE = L"Global_PageSem_"; // будем к нему добавлять номер
+static const wchar_t* SEM_NAME_BASE = L"Global_PageSem_";
 
-// Глобальные переменные для упрощения
 HANDLE g_hFileMapping = nullptr;
 SharedBuffer* g_bufView = nullptr;
 HANDLE g_mutexHandle = nullptr;
@@ -35,7 +34,6 @@ HANDLE g_pageSems[BUFF_PAGES] = { 0 };
 std::ofstream g_logStream;
 
 
-// Получить «современный» миллисекундный таймстамп через timeGetTime()
 static DWORD getMilliTime() {
     return timeGetTime();
 }
@@ -53,25 +51,24 @@ std::wstring to_wstring_alt(int value) {
     return ss.str();
 }
 
-// Инициализация общей памяти, мьютекса, семафоров, файла лога
+// Инициализация
 void initAll()
 {
-    // 1) Инициализируем srand для задержек
     srand(static_cast<unsigned int>(time(nullptr)));
 
-    // 2) Создаём/открываем глобальный мьютекс (чтобы синхронизация была на уровне системы)
+    // Создаём/открываем глобальный мьютекс (чтобы синхронизация была на уровне системы)
     g_mutexHandle = CreateMutexW(nullptr, FALSE, MUTEX_NAME);
     if (g_mutexHandle == nullptr) {
         failExit("CreateMutexW failed");
     }
 
-    // 3) Создаём семафоры для каждой страницы
+    // Создаём семафоры для каждой страницы
     for (int i = 0; i < BUFF_PAGES; ++i) {
         std::wstring semFullName = SEM_NAME_BASE + to_wstring_alt(i);
         g_pageSems[i] = CreateSemaphoreW(
             nullptr,
-            0,      // начальный счётчик = 0 (пока нет данных)
-            1,      // макс = 1 (после записи один читатель может получить)
+            0,      // нач
+            1,      // макс = 1 
             semFullName.c_str()
         );
         if (g_pageSems[i] == nullptr) {
@@ -79,7 +76,7 @@ void initAll()
         }
     }
 
-    // 4) Создаём проецируемый (file-mapped) файл нужного размера
+    // 4) Создаём проецируемый файл нужного размера
     g_hFileMapping = CreateFileMappingW(
         INVALID_HANDLE_VALUE,  // резервируем в памяти, не под файл на диске
         nullptr,
@@ -109,10 +106,9 @@ void initAll()
     // 5) Блокируем все страницы в RAM, чтобы они не сбрасывались на диск
     if (!VirtualLock(g_bufView, sizeof(SharedBuffer))) {
         std::cerr << "[Writer] VirtualLock returned error: " << GetLastError() << "\n";
-        // Но не фэйлим — продолжаем, хотя без блокировки
     }
 
-    // 6) Открываем (создаём) файл для логирования: writer_log_<PID>.txt
+    // Лог файл writer_log_<PID>.txt
     DWORD pid = GetCurrentProcessId();
     std::string logName = "writer_log_" + std::to_string(pid) + ".txt";
     g_logStream.open(logName, std::ios::out | std::ios::app);
@@ -122,7 +118,7 @@ void initAll()
     }
 }
 
-// Освобождаем всё: VirtualUnlock, UnmapView, CloseHandle для семафоров и мьютекса, закрываем лог
+// Освобождаем все
 void cleanupAll()
 {
     if (g_bufView) {
@@ -145,7 +141,7 @@ void cleanupAll()
     }
 }
 
-// Ищем свободную или «прочитанную» страницу. Если найдена, сразу помечаем её как C_WRITTEN.
+// Ищем свободную или прочитанную страницу. Если найдена, сразу помечаем её как прочитанную
 int locateFreeChunk()
 {
     // ждем мьютекса до бесконечности
@@ -166,36 +162,36 @@ int locateFreeChunk()
     return found;
 }
 
-// Процесс «записи» на страницу с индексом idx.
-// Копирует в неё случайную последовательность байтов, пишет логи и отдаёт семафор, чтобы читатель прочитал.
+// Процесс записи на страницу с индексом idx.
+// Копирует в неё случайную последовательность байтов, пишет логи и отдаёт семафор для читателя
 void performWrite(int idx)
 {
-    // a) генерируем произвольные данные
+    // a) Случайные данные для записи
     std::mt19937_64 rng(std::random_device{}());
     std::uniform_int_distribution<int> dist(0, 255);
     for (int i = 0; i < BUFF_BYTES; ++i) {
         g_bufView->payload[idx][i] = static_cast<char>(dist(rng));
     }
 
-    // b) логируем «начало записи» с таймстампом
+    // Лог
     if (g_logStream.is_open()) {
         g_logStream << GetCurrentProcessId() << ":"
             << getMilliTime()
             << ": Start_Write_Chunk_" << idx << "\n";
     }
 
-    // c) эмулируем замедленное копирование (500–1500 мс)
+    // Спим
     int delay = 500 + rand() % 1001; // от 500 до 1500
     Sleep(delay);
 
-    // d) логируем «конец записи»
+    // Лог
     if (g_logStream.is_open()) {
         g_logStream << GetCurrentProcessId() << ":"
             << getMilliTime()
             << ": End_Write_Chunk_" << idx << "\n";
     }
 
-    // e) «открываем» семафор, чтобы один из читателей заблокился
+    // Открываем семафор
     ReleaseSemaphore(g_pageSems[idx], 1, nullptr);
 
     // Небольшая пауза, чтобы на графике было видно
@@ -206,9 +202,9 @@ int main()
 {
     initAll();
 
-    // Выполняем ровно BUFF_PAGES итераций: так же, как было 14 раз
+    // Выполняем ровно BUFF_PAGES итераций
     for (int i = 0; i < BUFF_PAGES; ++i) {
-        // Логируем, что сейчас ожидаем страницу (аналог «Waiting for a page to write»)
+        // Лог
         if (g_logStream.is_open()) {
             g_logStream << GetCurrentProcessId() << ":"
                 << getMilliTime()
@@ -217,7 +213,7 @@ int main()
         // Поиск страницы
         int slot = locateFreeChunk();
         if (slot < 0) {
-            // Если «None», спим немного и переходим к следующей итерации
+            // Если none, спим немного и переходим к следующей итерации
             Sleep(100);
             continue;
         }
