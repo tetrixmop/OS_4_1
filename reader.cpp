@@ -47,12 +47,12 @@ std::wstring to_wstring_alt(int value) {
     return ss.str();
 }
 
-// Открываем мьютекс, семафоры, карту памяти, открываем лог
+// Открываем все
 void initAll()
 {
     srand(static_cast<unsigned int>(time(nullptr)));
 
-    // 1) Открываем мьютекс (он должен быть уже создан писателем)
+    // Мьютекс
     g_mutexHandle = OpenMutexW(
         MUTEX_ALL_ACCESS,
         FALSE,
@@ -62,7 +62,7 @@ void initAll()
         failExit("OpenMutexW failed");
     }
 
-    // 2) Открываем семафоры для каждой страницы
+    // Семфор
     for (int i = 0; i < BUFF_PAGES; ++i) {
         std::wstring semFullName = SEM_NAME_BASE + to_wstring_alt(i);
         g_pageSems[i] = OpenSemaphoreW(
@@ -75,7 +75,7 @@ void initAll()
         }
     }
 
-    // 3) Открываем file-mapping
+    // Файл
     g_hFileMapping = OpenFileMappingW(
         FILE_MAP_ALL_ACCESS,
         FALSE,
@@ -98,13 +98,12 @@ void initAll()
         failExit("MapViewOfFile failed");
     }
 
-    // 4) Открываем (или создаём, если нет) файл лога: reader_log_<PID>.txt
+    // Лог файл reader_log_<PID>.txt
     DWORD pid = GetCurrentProcessId();
     std::string logName = "reader_log_" + std::to_string(pid) + ".txt";
     g_logStream.open(logName, std::ios::out | std::ios::app);
     if (!g_logStream.is_open()) {
-        std::cerr << "[Reader] Unable to open file " << logName << "\n";
-        // но не фейлим — всё равно попробуем читать
+        std::cerr << "[Reader] Unable to open file " << logName << "\n"
     }
 }
 
@@ -148,38 +147,38 @@ int waitForChunk()
 
 void performRead(int chunkIdx)
 {
-    // a) Захватываем мьютекс и проверяем, что состояние WRITTEN
+    // Захватываем мьютекс и проверяем, что состояние прочитано
     WaitForSingleObject(g_mutexHandle, INFINITE);
     if (g_bufView->states[chunkIdx] == C_WRITTEN) {
         g_bufView->states[chunkIdx] = C_READ;
     }
     ReleaseMutex(g_mutexHandle);
 
-    // b) Логируем начало чтения
+    // Лог
     if (g_logStream.is_open()) {
         g_logStream << GetCurrentProcessId() << ":"
             << getMilliTime()
             << ": Start_Read_Chunk_" << chunkIdx << "\n";
     }
 
-    // c) Читаем всю страницу побайтово (симуляция cpu-загрузки)
+    // c) Читаем всю страницу побайтово
     volatile char tmp;
     for (int i = 0; i < BUFF_BYTES; ++i) {
         tmp = g_bufView->payload[chunkIdx][i];
     }
 
-    // d) Имитируем длительность чтения 
+    // ИБД
     int delay = 500 + rand() % 1001;
     Sleep(delay);
 
-    // e) Логируем «конец чтения»
+    // Лог
     if (g_logStream.is_open()) {
         g_logStream << GetCurrentProcessId() << ":"
             << getMilliTime()
             << ": End_Read_Chunk_" << chunkIdx << "\n";
     }
 
-    // f) Короткий sleep, чтобы разнести точки на графике
+    // Короткий sleep, чтобы разнести точки на графике
     Sleep(5);
 }
 
